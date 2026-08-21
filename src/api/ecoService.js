@@ -1,8 +1,23 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
+async function safeJsonParse(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Сервер вернул не JSON: ${text.slice(0, 120)}`);
+  }
+}
+
 export const calculateEcoData = async (data) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/calculate` || '/api/calculate', {
+    const url = `${API_BASE_URL}/api/calculate`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -10,7 +25,7 @@ export const calculateEcoData = async (data) => {
       body: JSON.stringify(data),
     });
 
-    const result = await response.json();
+    const result = await safeJsonParse(response);
 
     if (!response.ok) {
       throw new Error(result.message || 'Ошибка сервера при расчете данных');

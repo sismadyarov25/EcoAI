@@ -1,16 +1,26 @@
-# React + Vite
+# EcoAI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+> Умное приложение для анализа и оптимизации экологического следа с использованием искусственного интеллекта.
 
-Currently, two official plugins are available:
+## 🚀 О проекте
+**EcoAI** — это веб-приложение, разработанное на React и Vite, которое помогает пользователям оценивать их экологические привычки и получать персональные рекомендации по снижению углеродного следа.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🛠 Технологии
+* **Frontend:** React, Vite, TypeScript
+* **Стилизация:** Tailwind CSS / CSS Modules
+* **Сборка:** Vite
 
-## React Compiler
+## ⚙️ Инструкция по установке и запуску
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Чтобы запустить проект локально на своем компьютере, выполните следующие шаги:
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+1. **Клонируйте репозиторий:**
+   ```bash
+   git clone [https://github.com/sismadyarov25/EcoAI.git](https://github.com/sismadyarov25/EcoAI.git)
+  перейдите в папку проекта:
+cd EcoAi
+  затем установите зависимости:
+npm install
+  запустите проект в режиме разработки:
+npm run dev
+Откройте в браузере ссылку,которая появится в терминале (обычно http://localhost:5173).

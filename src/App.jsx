@@ -118,7 +118,12 @@ export default function App() {
     }
   }, []);
 
-  const waterDemoPerPerson = 4.5;
+  const waterDemoPerPersonByCategory = {
+    households: 4.5,
+    schools: 0.5,
+    business: 1.8
+  };
+  const waterDemoPerPerson = waterDemoPerPersonByCategory[category] || waterDemoPerPersonByCategory.households;
   const waterDemoTarget = Number(waterPeopleCount || 0) * waterDemoPerPerson;
   const waterDemoActual = Number(waterDemoUsage || 0);
   const waterDemoDelta = waterDemoTarget > 0 ? ((waterDemoActual - waterDemoTarget) / waterDemoTarget) * 100 : 0;
@@ -126,21 +131,21 @@ export default function App() {
   const typicalElectricityByCategory = {
     households: {
       label: 'Дом',
-      range: '180–500 кВт·ч/мес',
+      range: '180–300 кВт·ч/мес',
       note: 'Типичный городской дом или квартира с освещением, техникой, нагревом воды и климатом.',
-      example: 'Обычно выходит около 280–400 кВт·ч в месяц на 1–4 человека.'
+      example: 'Обычно выходит около 180–300 кВт·ч в месяц на семью, выше 400 кВт·ч уже требует проверки.'
     },
     schools: {
       label: 'Школа',
-      range: '1 200–7 000 кВт·ч/мес',
+      range: '2 500–6 000 кВт·ч/мес',
       note: 'Зависит от площади, освещения, лифтов, систем вентиляции и климатического оборудования.',
-      example: 'Средний корпус школы обычно даёт порядка 2–5 тыс. кВт·ч в месяц.'
+      example: 'Типовой учебный корпус обычно даёт порядка 2,5–6 тыс. кВт·ч в месяц.'
     },
     business: {
       label: 'Бизнес',
-      range: '3 000–15 000 кВт·ч/мес',
+      range: '1 200–6 000 кВт·ч/мес',
       note: 'Офис, магазин, кафе или предприятие с техникой, освещением и оборудованием.',
-      example: 'Малый бизнес обычно тратит примерно 4–10 тыс. кВт·ч в месяц.'
+      example: 'Малый или средний объект обычно тратит примерно 1,2–6 тыс. кВт·ч в месяц.'
     }
   };
 
@@ -158,15 +163,15 @@ export default function App() {
       heading: 'Анализ воды для школы',
       peopleLabel: 'Количество студентов и сотрудников',
       usageLabel: 'Месячное потребление воды, м³',
-      defaultPeople: 220,
-      defaultUsage: '760'
+      defaultPeople: 500,
+      defaultUsage: '260'
     },
     business: {
       heading: 'Анализ воды для бизнеса',
       peopleLabel: 'Количество сотрудников / смен',
       usageLabel: 'Месячное потребление воды, м³',
-      defaultPeople: 35,
-      defaultUsage: '120'
+      defaultPeople: 50,
+      defaultUsage: '80'
     }
   };
 
@@ -255,8 +260,8 @@ export default function App() {
   useEffect(() => {
     const defaults = {
       households: { people: 4, usage: '18' },
-      schools: { people: 220, usage: '760' },
-      business: { people: 35, usage: '120' }
+      schools: { people: 500, usage: '260' },
+      business: { people: 50, usage: '80' }
     };
 
     const nextDefaults = defaults[category] || defaults.households;
@@ -320,6 +325,12 @@ export default function App() {
         const resolvedScore = Number(result?.data?.score ?? 0);
         const resolvedStatus = result?.data?.status ?? 'НОРМАЛЬНЫЙ';
 
+        const detailedMetrics = result?.data?.detailedMetrics || {
+          waterAnalysis: `Расход воды составляет ${wVal} м³/мес для выбранной категории. Показатель нужно оценивать относительно среднего уровня по Казахстану.`,
+          electricityAnalysis: `Потребление электроэнергии составляет ${eVal} кВт·ч/мес. Для выбранной категории этот показатель следует сравнивать с типичным уровнем по РК.`,
+          wasteAnalysis: `Объем отходов составляет ${wstVal} кг/мес. Для оценки важно смотреть на уровень сортировки и переработки по категории.`
+        };
+
         setAnalysisResult({
           metrics: { water: wVal, electricity: eVal, waste: wstVal },
           savings: {
@@ -331,7 +342,7 @@ export default function App() {
           summary: result.data.summary,
           score: resolvedScore,
           status: resolvedStatus,
-          detailedMetrics: result.data.metrics || {},
+          detailedMetrics,
           aiAdvice: result.data.recommendations && result.data.recommendations.length > 0
             ? result.data.recommendations
             : (result.data.recommendationsList || [result.data.aiRecommendation]),
@@ -1130,9 +1141,9 @@ export default function App() {
                   </span>
 
                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                    analysisResult.status === 'отличный' 
+                    analysisResult.status === 'ОТЛИЧНЫЙ' || analysisResult.status === 'отличный'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : analysisResult.status === 'требует внимания'
+                      : analysisResult.status === 'КРИТИЧЕСКИЙ' || analysisResult.status === 'требует внимания'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                       : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                   }`}>

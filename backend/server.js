@@ -93,6 +93,253 @@ function formatCategory(category) {
   return labels[category] || 'Дом';
 }
 
+function formatCategoryGenitive(category) {
+  const labels = {
+    home: 'дома',
+    school: 'школы',
+    business: 'бизнеса',
+  };
+
+  return labels[category] || 'дома';
+}
+
+const KAZAKHSTAN_BENCHMARKS = {
+  home: {
+    label: 'Дом',
+    basis: 'ориентиром для семьи из 3-4 человек в Казахстане',
+    metrics: {
+      water: {
+        label: 'вода',
+        unit: 'м³/мес',
+        typicalMin: 10,
+        typicalMax: 20,
+        high: 25,
+        critical: 35,
+      },
+      electricity: {
+        label: 'электроэнергия',
+        unit: 'кВт·ч/мес',
+        typicalMin: 180,
+        typicalMax: 300,
+        high: 400,
+        critical: 600,
+      },
+      waste: {
+        label: 'отходы',
+        unit: 'кг/мес',
+        typicalMin: 70,
+        typicalMax: 125,
+        high: 150,
+        critical: 220,
+      },
+    },
+  },
+  school: {
+    label: 'Школа',
+    basis: 'ориентиром для типовой школы на 400-600 учеников и сотрудников',
+    metrics: {
+      water: {
+        label: 'вода',
+        unit: 'м³/мес',
+        typicalMin: 90,
+        typicalMax: 260,
+        high: 350,
+        critical: 550,
+      },
+      electricity: {
+        label: 'электроэнергия',
+        unit: 'кВт·ч/мес',
+        typicalMin: 2500,
+        typicalMax: 6000,
+        high: 8000,
+        critical: 12000,
+      },
+      waste: {
+        label: 'отходы',
+        unit: 'кг/мес',
+        typicalMin: 250,
+        typicalMax: 700,
+        high: 900,
+        critical: 1400,
+      },
+    },
+  },
+  business: {
+    label: 'Бизнес',
+    basis: 'ориентиром для офиса или малого/среднего коммерческого объекта на 30-70 сотрудников',
+    metrics: {
+      water: {
+        label: 'вода',
+        unit: 'м³/мес',
+        typicalMin: 25,
+        typicalMax: 100,
+        high: 160,
+        critical: 250,
+      },
+      electricity: {
+        label: 'электроэнергия',
+        unit: 'кВт·ч/мес',
+        typicalMin: 1200,
+        typicalMax: 6000,
+        high: 9000,
+        critical: 15000,
+      },
+      waste: {
+        label: 'отходы',
+        unit: 'кг/мес',
+        typicalMin: 150,
+        typicalMax: 650,
+        high: 900,
+        critical: 1400,
+      },
+    },
+  },
+};
+
+const METRIC_LABELS = {
+  water: 'воде',
+  electricity: 'электроэнергии',
+  waste: 'отходам',
+};
+
+function formatNumber(value) {
+  return Number(value).toLocaleString('ru-RU', {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
+  });
+}
+
+function formatTimes(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? `${formatNumber(rounded)} раз` : `${formatNumber(rounded)} раза`;
+}
+
+function getBenchmarks(category) {
+  return KAZAKHSTAN_BENCHMARKS[category] || KAZAKHSTAN_BENCHMARKS.home;
+}
+
+function getPayloadMetricValue(values, metricKey) {
+  const valueMap = {
+    water: values.waterAmount,
+    electricity: values.electricityKwh,
+    waste: values.wasteKg,
+  };
+
+  return valueMap[metricKey] ?? 0;
+}
+
+function calculateMetricScore(value, benchmark, metricKey, recycledPercent) {
+  if (value <= 0) {
+    return 35;
+  }
+
+  let score;
+
+  if (value <= benchmark.typicalMin) {
+    score = 98;
+  } else if (value <= benchmark.typicalMax) {
+    const position = (value - benchmark.typicalMin) / (benchmark.typicalMax - benchmark.typicalMin || 1);
+    score = 98 - position * 8;
+  } else if (value <= benchmark.high) {
+    const position = (value - benchmark.typicalMax) / (benchmark.high - benchmark.typicalMax || 1);
+    score = 89 - position * 29;
+  } else if (value <= benchmark.critical) {
+    const position = (value - benchmark.high) / (benchmark.critical - benchmark.high || 1);
+    score = 59 - position * 34;
+  } else {
+    const overCriticalRatio = value / benchmark.critical;
+    score = 24 / overCriticalRatio;
+  }
+
+  if (metricKey === 'waste') {
+    score += Math.min(20, recycledPercent * 0.25);
+
+    if (value > benchmark.critical) {
+      score = Math.min(score, 45);
+    } else if (value > benchmark.high) {
+      score = Math.min(score, 65);
+    } else if (value > benchmark.typicalMax) {
+      score = Math.min(score, 82);
+    }
+  }
+
+  return clamp(Math.round(score), 1, 100);
+}
+
+function buildMetricComparison(metricKey, value, benchmark) {
+  const formattedValue = `${formatNumber(value)} ${benchmark.unit}`;
+  const typicalRange = `${formatNumber(benchmark.typicalMin)}-${formatNumber(benchmark.typicalMax)} ${benchmark.unit}`;
+
+  if (value <= 0) {
+    return {
+      severity: 'missing',
+      isIssue: true,
+      text: `${formattedValue}: нулевое значение не похоже на реальный месячный расход. Проверьте ввод или счетчики; честный рейтинг снижает балл, потому что данных недостаточно.`,
+      summary: `${METRIC_LABELS[metricKey]} нет достоверных данных`,
+    };
+  }
+
+  if (value > benchmark.critical) {
+    const ratio = value / benchmark.typicalMax;
+    return {
+      severity: 'critical',
+      isIssue: true,
+      text: `${formattedValue}: критически выше среднего ориентира по РК (${typicalRange}) примерно в ${formatTimes(ratio)}. Это уже не "норма": возможны утечки, неучтенные зоны потребления или неверный режим эксплуатации.`,
+      summary: `${METRIC_LABELS[metricKey]} критическое превышение`,
+    };
+  }
+
+  if (value > benchmark.high) {
+    const percent = Math.round(((value / benchmark.typicalMax) - 1) * 100);
+    return {
+      severity: 'high',
+      isIssue: true,
+      text: `${formattedValue}: высокий расход, выше верхней границы среднего ориентира по РК (${typicalRange}) на ${percent}%. Нужна проверка причин, иначе расходы будут стабильно завышены.`,
+      summary: `${METRIC_LABELS[metricKey]} высокий расход`,
+    };
+  }
+
+  if (value > benchmark.typicalMax) {
+    const percent = Math.round(((value / benchmark.typicalMax) - 1) * 100);
+    return {
+      severity: 'above',
+      isIssue: true,
+      text: `${formattedValue}: выше среднего ориентира по РК (${typicalRange}) на ${percent}%. Это еще не аварийный уровень, но рейтинг честно снижает балл за перерасход.`,
+      summary: `${METRIC_LABELS[metricKey]} есть перерасход`,
+    };
+  }
+
+  if (value < benchmark.typicalMin) {
+    const percent = Math.round((1 - value / benchmark.typicalMin) * 100);
+    return {
+      severity: 'ok',
+      isIssue: false,
+      text: `${formattedValue}: ниже среднего ориентира по РК (${typicalRange}) на ${percent}%. Показатель выглядит экономным, если данные введены за полный месяц.`,
+      summary: `${METRIC_LABELS[metricKey]} экономный уровень`,
+    };
+  }
+
+  return {
+    severity: 'ok',
+    isIssue: false,
+    text: `${formattedValue}: в среднем диапазоне по РК (${typicalRange}). Это нормальный уровень для выбранной категории без явного перерасхода.`,
+    summary: `${METRIC_LABELS[metricKey]} норма`,
+  };
+}
+
+function rankMetricAssessments(assessments) {
+  const severityWeight = {
+    missing: 4,
+    critical: 3,
+    high: 2,
+    above: 1,
+    ok: 0,
+  };
+
+  return assessments
+    .filter((assessment) => assessment.isIssue)
+    .sort((a, b) => severityWeight[b.severity] - severityWeight[a.severity] || a.score - b.score);
+}
+
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -149,61 +396,59 @@ function validatePayload(payload) {
 }
 
 function buildFallbackResult(category, values) {
-  const categoryBenchmarks = {
-    home: { water: 15, electricity: 300, waste: 40 },
-    school: { water: 200, electricity: 4000, waste: 140 },
-    business: { water: 500, electricity: 7000, waste: 330 },
-  };
+  const categoryBenchmark = getBenchmarks(category);
+  const assessments = Object.entries(categoryBenchmark.metrics).map(([metricKey, benchmark]) => {
+    const value = getPayloadMetricValue(values, metricKey);
+    const comparison = buildMetricComparison(metricKey, value, benchmark);
+    const score = calculateMetricScore(value, benchmark, metricKey, values.recycledPercent);
 
-  const baseline = categoryBenchmarks[category] || categoryBenchmarks.home;
-  const waterScore = clamp(Math.round(100 - ((values.waterAmount / baseline.water) - 1) * 100), 0, 100);
-  const electricityScore = clamp(Math.round(100 - ((values.electricityKwh / baseline.electricity) - 1) * 100), 0, 100);
-  const wasteScore = clamp(
-    Math.round(100 - ((values.wasteKg / baseline.waste) - 1) * 100 + values.recycledPercent * 0.45),
-    0,
-    100
-  );
+    return {
+      key: metricKey,
+      benchmark,
+      value,
+      score,
+      ...comparison,
+    };
+  });
 
-  const score = clamp(
-    Math.round((waterScore + electricityScore + wasteScore) / 3 + values.recycledPercent * 0.15),
-    1,
-    100
-  );
+  const waterScore = assessments.find((item) => item.key === 'water')?.score ?? 50;
+  const electricityScore = assessments.find((item) => item.key === 'electricity')?.score ?? 50;
+  const wasteScore = assessments.find((item) => item.key === 'waste')?.score ?? 50;
+  const rawScore = (waterScore * 0.35) + (electricityScore * 0.35) + (wasteScore * 0.3);
+  const issueAssessments = rankMetricAssessments(assessments);
+  const hasMissingData = issueAssessments.some((item) => item.severity === 'missing');
+  const hasCriticalIssue = issueAssessments.some((item) => item.severity === 'critical');
+  const hasHighIssue = issueAssessments.some((item) => item.severity === 'high');
+  const hasAboveIssue = issueAssessments.some((item) => item.severity === 'above');
 
+  let scoreCap = 100;
+
+  if (hasMissingData) {
+    scoreCap = 55;
+  } else if (hasCriticalIssue) {
+    scoreCap = 49;
+  } else if (hasHighIssue) {
+    scoreCap = 74;
+  } else if (hasAboveIssue) {
+    scoreCap = 89;
+  }
+
+  const score = clamp(Math.round(Math.min(rawScore, scoreCap)), 1, 100);
   const status = normalizeStatus(score);
-  const bathsCount = Math.max(1, Math.round((values.waterAmount * 1000) / 150));
-  const bulbHours = Math.max(1, Math.round((values.electricityKwh * 1000) / 10));
-  const wasteBags = Math.max(1, Math.round(values.wasteKg / 8));
-
-  const comparisonWater = values.waterAmount <= baseline.water
-    ? `ниже среднего по РК для ${formatCategory(category).toLowerCase()} на ${Math.max(1, Math.round((1 - values.waterAmount / baseline.water) * 100))}%`
-    : `выше среднего по РК для ${formatCategory(category).toLowerCase()} на ${Math.max(1, Math.round(((values.waterAmount / baseline.water) - 1) * 100))}%`;
-
-  const comparisonElectricity = values.electricityKwh <= baseline.electricity
-    ? `ниже типичного уровня по РК на ${Math.max(1, Math.round((1 - values.electricityKwh / baseline.electricity) * 100))}%`
-    : `выше типичного уровня по РК на ${Math.max(1, Math.round(((values.electricityKwh / baseline.electricity) - 1) * 100))}%`;
-
-  const comparisonWaste = values.wasteKg <= baseline.waste
-    ? `соответствует или ниже среднего по РК для ${formatCategory(category).toLowerCase()}`
-    : `выше среднего по РК для ${formatCategory(category).toLowerCase()} на ${Math.max(1, Math.round(((values.wasteKg / baseline.waste) - 1) * 100))}%`;
-
-  const summary = `Для категории "${formatCategory(category)}" показатели находятся в оценке "${status}" относительно средних норм по Казахстану. По воде это ${comparisonWater}, по электроэнергии — ${comparisonElectricity}, а по отходам — ${comparisonWaste}, поэтому есть потенциал для экономии и повышения сортировки.`;
 
   const metrics = {
-    water: `Расход воды находится ${comparisonWater}; это примерно эквивалентно ${bathsCount} полным ваннам воды, что помогает оценить реальный уровень потребления в условиях РК.`,
-    electricity: `Электропотребление ${comparisonElectricity}; это примерно ${bulbHours.toLocaleString('ru-RU')} часов работы LED-лампочки мощностью 10 Вт, что важно для сезонной нагрузки летом и в отопительный период.`,
-    waste: `Объем отходов ${comparisonWaste}; это примерно ${wasteBags} мешков по 8 кг, а уровень переработки ${values.recycledPercent}% показывает, насколько эффективно действует инфраструктура сортировки в Казахстане.`,
+    water: assessments.find((item) => item.key === 'water')?.text || '',
+    electricity: assessments.find((item) => item.key === 'electricity')?.text || '',
+    waste: assessments.find((item) => item.key === 'waste')?.text || '',
   };
 
-  const issueMap = {
-    water: values.waterAmount > baseline.water,
-    electricity: values.electricityKwh > baseline.electricity,
-    waste: values.wasteKg > baseline.waste,
-  };
+  const issueSummary = issueAssessments.length > 0
+    ? issueAssessments.map((item) => item.summary).join(', ')
+    : 'перерасход не найден';
 
-  const activeIssues = Object.entries(issueMap)
-    .filter(([, isActive]) => isActive)
-    .map(([key]) => key);
+  const summary = issueAssessments.length > 0
+    ? `Честный рейтинг: ${score}/100, потому что ${issueSummary}. Сравнение идет с ${categoryBenchmark.basis}; если объект сильно больше или меньше типового, данные лучше нормировать по людям, площади или сменам.`
+    : `Честный рейтинг: ${score}/100 — показатели выглядят экономно или в среднем диапазоне по РК. Сравнение идет с ${categoryBenchmark.basis}; явного перерасхода по воде, электричеству и отходам не найдено.`;
 
   let recommendations = [
     'Совет не требуется: показатели уже находятся в оптимальном диапазоне по РК.',
@@ -211,24 +456,24 @@ function buildFallbackResult(category, values) {
     'Совет не требуется: дальнейшие улучшения рассматриваются только как добровольное повышение эффективности.'
   ];
 
-  if (activeIssues.length > 0) {
-    const sortedIssues = activeIssues.slice(0, 3);
+  if (issueAssessments.length > 0) {
+    const sortedIssues = issueAssessments.map((item) => item.key).slice(0, 3);
     const perIssueRecommendations = {
       water: {
         home: [
-          'Для дома проверьте и устраните утечки в кранах, toilet flush и трубах: даже небольшая капельная утечка в РК заметно повышает месячный расход воды.',
-          'Для дома подключите счетчики воды по комнатам и настройте таймеры на полив/стирку, чтобы снизить нецелевое потребление.',
-          'Для дома замените старую сантехнику на экономичные смесители и душевые насадки, чтобы сократить водопотребление без потери комфорта.'
+          'Для дома проверьте краны, сливной бачок и трубы: постоянная капля или протечка часто объясняет лишние кубометры за месяц.',
+          'Для дома сверяйте показания счетчика по неделям и отдельно отмечайте стирку, полив и долгий душ, чтобы найти главный источник перерасхода.',
+          'Для дома замените старые смесители и душевые насадки на экономичные, если вода стабильно выше среднего ориентира по РК.'
         ],
         school: [
-          'Для школы проверьте сантехнику в туалетах, умывальниках и системах полива: высокая нагрузка на дневные часы часто вызывает лишний расход воды.',
-          'Для школы задайте график обслуживания кранов, сливов и систем полива, чтобы снизить утечки в учебном корпусе и на дворе.',
-          'Для школы модернизируйте санитарные узлы и душевые точки на экономичную арматуру, чтобы уменьшить расход воды во время пиковых нагрузок.'
+          'Для школы проверьте санузлы, умывальники, столовую и полив: именно эти зоны чаще всего дают лишний расход в учебные дни.',
+          'Для школы заведите журнал показаний воды по неделям и сравнивайте учебные дни, выходные и каникулы, чтобы быстро находить утечки.',
+          'Для школы поставьте экономичные аэраторы и исправную сливную арматуру в местах с большой проходимостью.'
         ],
         business: [
-          'Для бизнеса проверьте утечки на производственных участках, в кухнях и санитарных узлах: даже небольшие потери воды резко повышают коммунальные расходы.',
-          'Для бизнеса объедините учет воды по цехам и сменам, чтобы быстро выявлять зоны с лишними расходами и сократить потери в реальные сроки.',
-          'Для бизнеса установите экономичные смесители и системы автоматики на водоснабжение, чтобы снизить расход без потери производительности.'
+          'Для бизнеса разделите учет воды по зонам: офис, кухня, санузлы, мойка, производство или смены, чтобы не искать перерасход вслепую.',
+          'Для бизнеса проверьте ночной расход по счетчику: если объект закрыт, а вода продолжает уходить, вероятна скрытая утечка.',
+          'Для бизнеса установите экономичную арматуру и автоматику там, где вода используется часто и повторяемо.'
         ]
       },
       electricity: {
@@ -250,30 +495,36 @@ function buildFallbackResult(category, values) {
       },
       waste: {
         home: [
-          'Для дома организуйте раздельный сбор бумаги, пластика и стекла и сдавайте вторсырье в местные пункты приема, чтобы сократить бытовой мусор.',
-          'Для дома уменьшите объем органических отходов через компостирование и правильное хранение, чтобы снизить общий вес мусора и повысить переработку.',
-          'Для дома используйте многоразовую упаковку и контейнеры, чтобы постепенно сократить количество одноразового мусора и улучшить сортировку.'
+          'Для дома начните с раздельного сбора пластика, бумаги, стекла и металла: это быстрее всего снижает смешанный мусор.',
+          'Для дома отдельно собирайте органику, если есть возможность компостирования или вывоза: она сильно увеличивает общий вес отходов.',
+          'Для дома уменьшите одноразовую упаковку в покупках и хранении продуктов, чтобы мусор не рос даже при том же составе семьи.'
         ],
         school: [
-          'Для школы организуйте раздельный сбор отходов в столовой, кабинетах и рекреационных зонах, чтобы уменьшить объем мусора и вовлечь учеников в экологическую культуру.',
-          'Для школы наладьте контейнеры для пластика, бумаги и стекла в удобных местах, чтобы повысить сортировку и снизить вывоз мусора.',
-          'Для школы договоритесь с локальными пунктами приема вторсырья, чтобы обеспечить регулярный вывоз перерабатываемых материалов и уменьшить нагрузку на свалки.'
+          'Для школы поставьте отдельные контейнеры в столовой, кабинетах и рекреациях: один общий бак обычно скрывает реальный источник мусора.',
+          'Для школы отделяйте пищевые отходы столовой от бумаги и пластика, иначе перерабатываемые материалы быстро становятся непригодными.',
+          'Для школы договоритесь с локальными пунктами приема вторсырья о регулярном вывозе, чтобы сортировка не оставалась формальностью.'
         ],
         business: [
-          'Для бизнеса внедрите раздельный сбор по типам сырья и заключите договор с локальными приемными пунктами, чтобы сократить объем отходов и повысить переработку.',
-          'Для бизнеса организуйте отдельные контейнеры для пластика, бумаги и стекла по каждому подразделению, чтобы поднять качество сортировки и уменьшить вывоз мусора.',
-          'Для бизнеса пересмотрите упаковку и схемы логистики, чтобы уменьшить количество отходов на производстве и в офисных процессах.'
+          'Для бизнеса разделите отходы по подразделениям и типам сырья, чтобы видеть, где образуется основной объем мусора.',
+          'Для бизнеса заключите договор на вывоз вторсырья и фиксируйте вес по месяцам, иначе переработку трудно подтвердить цифрами.',
+          'Для бизнеса пересмотрите упаковку, закупки и логистику: часто именно они создают лишние килограммы отходов.'
         ]
       }
     };
 
-    recommendations = [];
+    const nextRecommendations = [];
 
-    sortedIssues.forEach((issue) => {
-      recommendations.push(...perIssueRecommendations[issue][category]);
-    });
+    for (let index = 0; index < 3; index += 1) {
+      sortedIssues.forEach((issue) => {
+        const issueRecommendations = perIssueRecommendations[issue]?.[category] || [];
 
-    recommendations = recommendations.slice(0, 3);
+        if (issueRecommendations[index] && nextRecommendations.length < 3) {
+          nextRecommendations.push(issueRecommendations[index]);
+        }
+      });
+    }
+
+    recommendations = nextRecommendations;
   }
 
   return {
@@ -282,6 +533,29 @@ function buildFallbackResult(category, values) {
     summary,
     metrics,
     recommendations,
+  };
+}
+
+function mergeAiResultWithBenchmark(benchmarkResult, aiResult) {
+  if (!aiResult) {
+    return benchmarkResult;
+  }
+
+  const recommendations = normalizeRecommendationList(aiResult.recommendations);
+
+  return {
+    ...benchmarkResult,
+    recommendations: recommendations.length === 3 ? recommendations : benchmarkResult.recommendations,
+  };
+}
+
+function buildDetailedMetricAnalysis(category, values) {
+  const result = buildFallbackResult(category, values);
+
+  return {
+    waterAnalysis: result.metrics.water,
+    electricityAnalysis: result.metrics.electricity,
+    wasteAnalysis: result.metrics.waste,
   };
 }
 
@@ -304,28 +578,34 @@ function sanitizeAiResponse(raw) {
   return cleaned;
 }
 
+function normalizeRecommendationList(list) {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+
+  return list
+    .map((item) => String(item).trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 3);
+}
+
 function normalizeAiResult(payload) {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
 
   const score = Number(payload.score);
-  const status = normalizeStatusValue(payload.status);
+  const status = normalizeStatusValue(payload.status || normalizeStatus(Number.isFinite(score) ? score : 50));
 
   const metrics = payload.metrics && typeof payload.metrics === 'object'
     ? {
-        water: String(payload.metrics.water || '').trim(),
-        electricity: String(payload.metrics.electricity || '').trim(),
-        waste: String(payload.metrics.waste || '').trim(),
+        water: String(payload.metrics.water ?? '').trim(),
+        electricity: String(payload.metrics.electricity ?? '').trim(),
+        waste: String(payload.metrics.waste ?? '').trim(),
       }
     : null;
 
-  const recommendations = Array.isArray(payload.recommendations)
-    ? payload.recommendations
-        .map((item) => String(item).trim())
-        .filter((item) => item.length > 0)
-        .slice(0, 3)
-    : [];
+  const recommendations = normalizeRecommendationList(payload.recommendations);
 
   if (!payload.summary || typeof payload.summary !== 'string' || !payload.summary.trim()) {
     return null;
@@ -335,7 +615,7 @@ function normalizeAiResult(payload) {
     return null;
   }
 
-  if (recommendations.length < 3) {
+  if (recommendations.length === 0) {
     return null;
   }
 
@@ -359,12 +639,14 @@ function enforceHighScoreNoAdvice(result, category) {
 
   const categoryLabel = formatCategory(category);
 
+  const summary = `Для категории "${categoryLabel}" показатели находятся в оптимальном диапазоне по Казахстану. Дополнительный совет не требуется: текущий уровень эффективности уже соответствует высоким стандартам ресурсоэффективности.`;
+
   return {
     ...result,
     status: 'ОТЛИЧНЫЙ',
-    summary: `Для категории "${categoryLabel}" показатели находятся в оптимальном диапазоне по Казахстану. Дополнительный совет не требуется: текущий уровень эффективности уже соответствует высоким стандартам ресурсоэффективности.`,
+    summary,
     recommendations: [
-      `Совет не требуется: для ${categoryLabel.toLowerCase()} показатели уже находятся в оптимальном диапазоне по РК.`,
+      `Совет не требуется: для ${formatCategoryGenitive(category)} показатели уже находятся в оптимальном диапазоне по РК.`,
       `Совет не требуется: текущий уровень эффективности соответствует устойчивым нормам потребления в Казахстане.`,
       `Совет не требуется: дальнейшие улучшения можно рассматривать только как добровольное повышение эффективности, но они не обязательны.`
     ],
@@ -376,18 +658,11 @@ async function generateAiInsight(category, values) {
     return null;
   }
 
+  const benchmarkForPrompt = getBenchmarks(category);
   const systemPrompt = `Ты — строгий эко-аудитор сервиса EcoAI в Казахстане. Твоя задача — динамически проанализировать переданные цифры и выявить аномалии относительно норм и средних значений по РК.
 
 БЕНЧМАРКИ ДЛЯ СРАВНЕНИЯ:
-1. Дом (home):
-   - Вода: норма 5–15 м³/мес. Если >20 м³ — аномалия, возможна утечка.
-   - Свет: норма 150–300 кВт·ч/мес. Если >400 кВт·ч — высокий расход.
-   - Мусор: норма 20–40 кг/мес.
-2. Школа (school):
-   - Вода: норма 80–200 м³/мес.
-   - Свет: норма 1500–4000 кВт·ч/мес.
-3. Бизнес (business):
-   - Оценивай по пропорциям: офис/сфера/производство, но всегда сравнивай с типичными коммерческими объектами РК.
+${JSON.stringify(benchmarkForPrompt, null, 2)}
 
 СТРОГИЕ ПРАВИЛА:
 1. Запрещено писать сухие шаблоны вроде «Месячный расход воды равен X м³».
@@ -446,7 +721,7 @@ async function generateAiInsight(category, values) {
       const parsed = JSON.parse(cleaned);
       const normalized = normalizeAiResult(parsed);
       return normalized;
-    } catch (parseError) {
+    } catch {
       const match = cleaned.match(/\{[\s\S]*\}/);
 
       if (!match) {
@@ -598,22 +873,33 @@ app.post('/api/calculate', async (req, res, next) => {
     const { category, waterAmount, electricityKwh, wasteKg, recycledPercent } = validation.values;
     const normalizedCategory = category;
 
-    const aiResult = await generateAiInsight(normalizedCategory, {
+    const benchmarkResult = buildFallbackResult(normalizedCategory, {
       waterAmount,
       electricityKwh,
       wasteKg,
       recycledPercent,
     });
 
+    const aiResult = process.env.USE_OPENAI_NARRATIVE === 'true'
+      ? await generateAiInsight(normalizedCategory, {
+          waterAmount,
+          electricityKwh,
+          wasteKg,
+          recycledPercent,
+        })
+      : null;
+
     const finalResult = enforceHighScoreNoAdvice(
-      aiResult || buildFallbackResult(normalizedCategory, {
-        waterAmount,
-        electricityKwh,
-        wasteKg,
-        recycledPercent,
-      }),
+      mergeAiResultWithBenchmark(benchmarkResult, aiResult),
       normalizedCategory
     );
+
+    const detailedMetrics = buildDetailedMetricAnalysis(normalizedCategory, {
+      waterAmount,
+      electricityKwh,
+      wasteKg,
+      recycledPercent,
+    });
 
     return res.status(200).json({
       success: true,
@@ -626,6 +912,7 @@ app.post('/api/calculate', async (req, res, next) => {
           electricity: finalResult.metrics.electricity,
           waste: finalResult.metrics.waste,
         },
+        detailedMetrics,
         recommendations: finalResult.recommendations,
       },
     });

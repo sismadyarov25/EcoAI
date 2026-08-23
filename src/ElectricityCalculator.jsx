@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Calendar, Hash, Zap, Banknote } from 'lucide-react';
+import { Banknote, Calendar, CheckCircle2, Hash, Lightbulb, Users, Zap } from 'lucide-react';
 
 export default function ElectricityCalculator() {
   const [residents, setResidents] = useState(5);
@@ -14,6 +14,8 @@ export default function ElectricityCalculator() {
   const [startReading, setStartReading] = useState(46977);
   const [currentReading, setCurrentReading] = useState(47790);
   const [tariff, setTariff] = useState(23.9772);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [aiAdvice, setAiAdvice] = useState(null);
 
   const calculateDays = () => {
     const start = new Date(startDate);
@@ -31,6 +33,49 @@ export default function ElectricityCalculator() {
   const recommended = residents * 2.5 * daysPassed;
   const deviation = used - recommended;
   const isExceeded = deviation > 0;
+  const exceedPercent = recommended > 0 ? (deviation / recommended) * 100 : 0;
+
+  const getAiAdvice = () => {
+    if (currentReading < startReading) {
+      return [
+        'Проверьте показания: текущее значение должно быть больше или равно начальному.',
+        'Если счётчик заменили, начните расчёт с нового начального показания.',
+        'Сверьте дату начала периода, чтобы сравнение с нормой было корректным.'
+      ];
+    }
+
+    if (isExceeded && exceedPercent > 40) {
+      return [
+        'Проверьте самые мощные приборы: бойлер, обогреватель, кондиционер, плиту и стиральную машину.',
+        'Перенесите часть нагрузки на экономичные режимы и не оставляйте технику в режиме ожидания.',
+        'Снимайте показания вечером 3-4 дня подряд: так легче найти день или прибор с резким скачком.'
+      ];
+    }
+
+    if (isExceeded) {
+      return [
+        'Есть небольшое превышение: начните с выключения света и техники в пустых комнатах.',
+        'Запускайте стирку и посудомойку при полной загрузке, желательно на экономичном режиме.',
+        'Проверьте холодильник: плотность дверцы и температура сильно влияют на расход.'
+      ];
+    }
+
+    return [
+      'Потребление в норме: сохраните текущие привычки и продолжайте вести показания.',
+      'Чтобы удержать результат, отключайте зарядки и технику, когда они не используются.',
+      'Если планируете покупку техники, выбирайте модели с высоким классом энергоэффективности.'
+    ];
+  };
+
+  const handleUpdate = () => {
+    setAiAdvice(getAiAdvice());
+    setUpdatedAt(new Date());
+  };
+
+  const resetAiAdvice = () => {
+    setAiAdvice(null);
+    setUpdatedAt(null);
+  };
 
 
   return (
@@ -48,7 +93,10 @@ export default function ElectricityCalculator() {
               <input
                 type="number"
                 value={residents}
-                onChange={(e) => setResidents(Number(e.target.value))}
+                onChange={(e) => {
+                  setResidents(Number(e.target.value));
+                  resetAiAdvice();
+                }}
                 className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-amber-500 transition-colors"
               />
             </div>
@@ -60,7 +108,10 @@ export default function ElectricityCalculator() {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  resetAiAdvice();
+                }}
                 className="w-full bg-slate-50 border border-slate-200 text-slate-900 font-medium text-sm rounded-xl px-2 py-3 focus:outline-none focus:border-amber-500 transition-colors text-center"
               />
             </div>
@@ -77,7 +128,10 @@ export default function ElectricityCalculator() {
             <input
               type="number"
               value={currentReading}
-              onChange={(e) => setCurrentReading(Number(e.target.value))}
+              onChange={(e) => {
+                setCurrentReading(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-base rounded-2xl px-4 py-3.5 focus:outline-none focus:border-amber-500 transition-colors font-semibold shadow-sm"
             />
           </div>
@@ -91,7 +145,10 @@ export default function ElectricityCalculator() {
             <input
               type="number"
               value={startReading}
-              onChange={(e) => setStartReading(Number(e.target.value))}
+              onChange={(e) => {
+                setStartReading(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-base rounded-2xl px-4 py-3.5 focus:outline-none focus:border-amber-500 transition-colors font-semibold shadow-sm"
             />
           </div>
@@ -112,7 +169,10 @@ export default function ElectricityCalculator() {
               type="number"
               step="0.0001"
               value={tariff}
-              onChange={(e) => setTariff(Number(e.target.value))}
+              onChange={(e) => {
+                setTariff(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-base rounded-2xl px-4 py-3.5 focus:outline-none focus:border-emerald-500 transition-colors font-semibold shadow-sm"
             />
           </div>
@@ -127,9 +187,25 @@ export default function ElectricityCalculator() {
             </div>
           </div>
 
-          <button className="w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md">
+          <button
+            type="button"
+            onClick={handleUpdate}
+            className="w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md"
+          >
             Обновить
           </button>
+
+          {updatedAt && (
+            <div className="text-center text-[12px] font-semibold text-amber-600">
+              Данные обновлены в {updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+
+          {!aiAdvice && (
+            <div className="text-center text-[12px] font-semibold text-slate-400">
+              Нажмите «Обновить», чтобы получить AI-совет и поручения.
+            </div>
+          )}
         </div>
       </div>
 
@@ -163,6 +239,29 @@ export default function ElectricityCalculator() {
           </div>
         </div>
       </div>
+
+      {aiAdvice && (
+        <div className="mt-6 bg-amber-50 rounded-[24px] p-6 shadow-sm border border-amber-100">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center">
+              <Lightbulb className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-[16px] font-black text-slate-900">AI-совет по электричеству</h3>
+              <p className="text-[12px] text-slate-500">Что сделать, чтобы снизить расход</p>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {aiAdvice.map((advice) => (
+              <div key={advice} className="flex items-start gap-2.5 text-[12px] leading-relaxed text-slate-700">
+                <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>{advice}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

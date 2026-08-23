@@ -1,15 +1,60 @@
 import React, { useState } from 'react';
-import { Droplet, Hash, Banknote } from 'lucide-react';
+import { Banknote, CheckCircle2, Droplet, Lightbulb } from 'lucide-react';
 
 export default function WaterCalculator() {
   const [startReading, setStartReading] = useState(67.300);
   const [currentReading, setCurrentReading] = useState(221.207);
   const [tariff, setTariff] = useState(149.18);
+  const [calculatedAt, setCalculatedAt] = useState(null);
+  const [aiAdvice, setAiAdvice] = useState(null);
 
   // Автоматические расчёты
   const difference = Math.max(0, currentReading - startReading);   // разница в м³
   const liters = difference * 1000;                                 // расход в литрах
   const totalCost = difference * tariff;                            // начислено ₸
+  const hasReadingError = currentReading < startReading;
+
+  const getAiAdvice = () => {
+    if (hasReadingError) {
+      return [
+        'Проверьте ввод: текущее показание не может быть меньше начального.',
+        'Если счётчик был заменён, начните новый расчёт с показания нового счётчика.',
+        'Сохраните фото показаний, чтобы легче сверить данные с квитанцией.'
+      ];
+    }
+
+    if (difference > 20) {
+      return [
+        'Проверьте краны, душ и сливной бачок: незаметная утечка часто даёт большой перерасход.',
+        'Поставьте аэраторы на смесители и сократите напор там, где сильный поток не нужен.',
+        'Перенесите стирку и уборку на полную загрузку, чтобы снизить расход без потери комфорта.'
+      ];
+    }
+
+    if (difference > 12) {
+      return [
+        'Расход умеренный, но есть запас для экономии: начните с душа на 1-2 минуты короче.',
+        'Проверяйте счётчик раз в неделю, чтобы быстро заметить необычный рост.',
+        'Для полива используйте утреннее или вечернее время, когда вода меньше испаряется.'
+      ];
+    }
+
+    return [
+      'Потребление выглядит аккуратно: продолжайте фиксировать показания каждый месяц.',
+      'Держите привычку закрывать воду во время чистки зубов и намыливания посуды.',
+      'Если расход внезапно вырастет, первым делом проверьте утечки и бытовую технику.'
+    ];
+  };
+
+  const handleCalculate = () => {
+    setAiAdvice(getAiAdvice());
+    setCalculatedAt(new Date());
+  };
+
+  const resetAiAdvice = () => {
+    setAiAdvice(null);
+    setCalculatedAt(null);
+  };
 
   return (
     <div className="w-full max-w-md mx-auto font-sans">
@@ -30,7 +75,10 @@ export default function WaterCalculator() {
               type="number"
               step="0.001"
               value={startReading}
-              onChange={(e) => setStartReading(Number(e.target.value))}
+              onChange={(e) => {
+                setStartReading(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-lg rounded-2xl px-4 py-3.5 focus:outline-none focus:border-sky-500 transition-colors font-semibold"
             />
           </div>
@@ -45,7 +93,10 @@ export default function WaterCalculator() {
               type="number"
               step="0.001"
               value={currentReading}
-              onChange={(e) => setCurrentReading(Number(e.target.value))}
+              onChange={(e) => {
+                setCurrentReading(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-lg rounded-2xl px-4 py-3.5 focus:outline-none focus:border-sky-500 transition-colors font-semibold"
             />
           </div>
@@ -61,7 +112,10 @@ export default function WaterCalculator() {
               type="number"
               step="0.01"
               value={tariff}
-              onChange={(e) => setTariff(Number(e.target.value))}
+              onChange={(e) => {
+                setTariff(Number(e.target.value));
+                resetAiAdvice();
+              }}
               className="w-full bg-white border border-slate-200 text-slate-900 text-lg rounded-2xl px-4 py-3.5 focus:outline-none focus:border-sky-500 transition-colors font-semibold"
             />
           </div>
@@ -93,10 +147,49 @@ export default function WaterCalculator() {
           </div>
 
           {/* Кнопка */}
-          <button className="w-full bg-[#1877F2] hover:bg-blue-600 active:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md">
+          <button
+            type="button"
+            onClick={handleCalculate}
+            className="w-full bg-[#1877F2] hover:bg-blue-600 active:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md"
+          >
             Рассчитать
           </button>
+
+          {calculatedAt && (
+            <div className="text-center text-[12px] font-semibold text-emerald-600">
+              Расчёт обновлён в {calculatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+
+          {!aiAdvice && (
+            <div className="text-center text-[12px] font-semibold text-slate-400">
+              Нажмите «Рассчитать», чтобы получить AI-совет и поручения.
+            </div>
+          )}
         </div>
+
+        {aiAdvice && (
+          <div className="mt-6 bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center">
+                <Lightbulb className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">AI-совет по воде</h4>
+                <p className="text-[11px] text-slate-500">Пути решения по вашему расходу</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {aiAdvice.map((advice) => (
+                <div key={advice} className="flex items-start gap-2 text-[12px] leading-relaxed text-slate-700">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{advice}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Пояснение */}
         <div className="mt-6 bg-slate-50 rounded-2xl p-4 border border-slate-100">

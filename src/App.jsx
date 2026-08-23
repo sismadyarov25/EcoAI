@@ -33,6 +33,9 @@ import {
 } from 'lucide-react';
 import { calculateEcoData } from './api/ecoService';
 import { registerUser, loginUser } from './api/authService';
+import WaterCalculator from './WaterCalculator';
+import ElectricityCalculator from './ElectricityCalculator';
+import GasCalculator from './GasCalculator';
 
 export default function App() {
   // ---------------------------------------------------------------------------
@@ -57,6 +60,7 @@ export default function App() {
   const [water, setWater] = useState('12.4');       // м³
   const [electricity, setElectricity] = useState('248'); // кВт·ч
   const [waste, setWaste] = useState('32');         // кг
+  const [familySize, setFamilySize] = useState('4'); // чел
 
   // Demo water analysis state
   const [waterPeopleCount, setWaterPeopleCount] = useState(4);
@@ -316,6 +320,7 @@ export default function App() {
         waterAmount: wVal,
         electricityKwh: eVal,
         wasteKg: wstVal,
+        peopleCount: parseInt(familySize) || 4,
         recycledPercent: 20
       });
       
@@ -639,7 +644,7 @@ export default function App() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
           <div 
             onClick={() => { setCategory('households'); scrollToSection(calculatorRef); }}
             className={`p-6 sm:p-8 rounded-3xl border transition-all cursor-pointer group ${
@@ -962,6 +967,34 @@ export default function App() {
                 </p>
               </div>
 
+              {/* Family Size Input */}
+              <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200/80 transition-all focus-within:border-indigo-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100 flex flex-col justify-between">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-indigo-500" />
+                      Семья
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal">человек</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={familySize}
+                      onChange={(e) => setFamilySize(e.target.value)}
+                      required
+                      className="w-full bg-transparent text-2xl font-bold text-slate-900 focus:outline-none pr-10"
+                    />
+                    <span className="absolute right-0 text-sm font-semibold text-slate-400">чел</span>
+                  </div>
+                </div>
+                <p className="text-[11px] font-medium text-slate-500 mt-3 pt-2 border-t border-slate-200/60">
+                  💡 Учитывается для расчета норм
+                </p>
+              </div>
+
             </div>
 
             <div className="flex justify-center">
@@ -992,140 +1025,6 @@ export default function App() {
               </div>
             )}
           </form>
-        </div>
-
-        <div className="mt-8 bg-white/80 border border-slate-200/80 rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
-              <Droplet className="w-5 h-5" />
-            </div>
-            <h3 className="text-2xl font-black text-slate-900">{activeWaterProfile.heading}</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                {activeWaterProfile.peopleLabel}
-              </label>
-              <input
-                type="number"
-                min="1"
-                max={category === 'schools' ? '2000' : category === 'business' ? '5000' : '20'}
-                value={waterPeopleCount}
-                onChange={(e) => setWaterPeopleCount(Math.max(1, Number(e.target.value || 1)))}
-                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-lg font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                {activeWaterProfile.usageLabel}
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={waterDemoUsage}
-                onChange={(e) => setWaterDemoUsage(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-lg font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-
-          <div className={`inline-flex items-center px-3.5 py-2 rounded-full text-sm font-bold ${waterDemoStatus.tone}`}>
-            {waterDemoStatus.label}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Фактическое</div>
-              <div className="text-2xl font-black text-slate-900">{waterDemoActual.toFixed(1)} м³</div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Ориентир</div>
-              <div className="text-2xl font-black text-slate-900">{waterDemoTarget.toFixed(1)} м³</div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Превышение</div>
-              <div className={`text-2xl font-black ${waterDemoStatus.accent}`}>
-                {waterDemoTarget > 0 ? `${Math.max(0, waterDemoDelta).toFixed(1)}%` : '0.0%'}
-              </div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Рекомендация</div>
-              <div className="text-sm font-semibold text-slate-700 leading-relaxed">
-                {waterDemoStatus.recommendation}
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-5 text-xs text-slate-500 leading-relaxed">
-            Эти значения являются демонстрационными ориентирами: ориентир основан на 150 л/сутки на человека, что примерно равно 4,5 м³ на человека в месяц. В дальнейшем эти данные будут заменены на подтверждённые показатели для Казахстана.
-          </p>
-        </div>
-
-        <div className="mt-8 bg-white/80 border border-slate-200/80 rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700">
-              <Flame className="w-5 h-5" />
-            </div>
-            <h3 className="text-2xl font-black text-slate-900">{activeAdviceProfile.heading}</h3>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <div className={`${activeAdviceProfile.gasStyle} rounded-2xl p-5`}>
-              <div className="flex items-center gap-2 mb-4">
-                <Flame className="w-5 h-5 text-amber-600" />
-                <h4 className="text-lg font-black text-amber-800">{activeAdviceProfile.gasTitle}</h4>
-              </div>
-              <ul className={`space-y-3 text-sm leading-relaxed ${activeAdviceProfile.gasText}`}>
-                {activeAdviceProfile.gasBullets.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div className={`${activeAdviceProfile.electricStyle} rounded-2xl p-5`}>
-              <div className="flex items-center gap-2 mb-4">
-                <Lightbulb className="w-5 h-5 text-emerald-600" />
-                <h4 className="text-lg font-black text-emerald-800">{activeAdviceProfile.electricityTitle}</h4>
-              </div>
-              <ul className={`space-y-3 text-sm leading-relaxed ${activeAdviceProfile.electricText}`}>
-                {activeAdviceProfile.electricityBullets.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Zap className="w-5 h-5 text-amber-600" />
-              <h4 className="text-lg font-black text-slate-900">Примерно сколько выходит электроэнергии</h4>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {Object.values(typicalElectricityByCategory).map((item) => (
-                <div
-                  key={item.label}
-                  className={`rounded-2xl border p-4 ${
-                    item.label === electricityCategoryEstimate.label
-                      ? 'border-emerald-300 bg-emerald-50'
-                      : 'border-slate-200 bg-white'
-                  }`}
-                >
-                  <div className="text-sm font-bold text-slate-500 mb-2">{item.label}</div>
-                  <div className="text-2xl font-black text-slate-900 mb-2">{item.range}</div>
-                  <p className="text-sm text-slate-600 leading-relaxed">{item.note}</p>
-                  <p className="mt-3 text-xs font-semibold text-emerald-700">{item.example}</p>
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-              Для текущей категории <span className="font-bold text-slate-900">{electricityCategoryEstimate.label}</span> типичный ориентир составляет примерно <span className="font-bold text-emerald-700">{electricityCategoryEstimate.range}</span> в месяц. Это оценка для демонстрации, а не официальный норматив.
-            </p>
-          </div>
         </div>
 
         {analysisResult && (
@@ -1237,6 +1136,23 @@ export default function App() {
 
           </div>
         )}
+
+
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 items-stretch">
+          <div className="flex flex-col gap-3">
+            <div className="text-2xl font-black text-slate-900">Вода</div>
+            <WaterCalculator />
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="text-2xl font-black text-slate-900">Электричество</div>
+            <ElectricityCalculator />
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="text-2xl font-black text-slate-900">Газ</div>
+            <GasCalculator />
+          </div>
+        </div>
+
       </section>
 
       {/* --------------------------------------------------------------------- */}

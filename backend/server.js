@@ -752,7 +752,7 @@ app.post('/api/vision/stub', (req, res) => {
   });
 });
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body ?? {};
   const cleanName = String(name || '').trim();
   const normalizedEmail = normalizeEmail(email);
@@ -779,34 +779,40 @@ app.post('/api/auth/register', (req, res) => {
     });
   }
 
-  const checkUser = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
-  if (checkUser) {
-    return res.status(409).json({
-      success: false,
-      message: 'Пользователь с таким email уже зарегистрирован.',
+  try {
+    const { rows: existingUsers } = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (existingUsers.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Пользователь с таким email уже зарегистрирован.',
+      });
+    }
+
+    const user = {
+      id: crypto.randomUUID(),
+      name: cleanName,
+      email: normalizedEmail,
+      passwordHash: hashPassword(cleanPassword),
+    };
+
+    await pool.query(
+      'INSERT INTO users (id, name, email, "passwordHash") VALUES ($1, $2, $3, $4)',
+      [user.id, user.name, user.email, user.passwordHash]
+    );
+
+    return res.status(201).json({
+      success: true,
+      token: user.email,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
     });
+  } catch (err) {
+    console.error('Ошибка регистрации:', err);
+    return res.status(500).json({ success: false, message: 'Произошла внутренняя ошибка сервера.' });
   }
-
-  const user = {
-    id: crypto.randomUUID(),
-    name: cleanName,
-    email: normalizedEmail,
-    passwordHash: hashPassword(cleanPassword),
-  };
-
-  const insertUser = db.prepare('INSERT INTO users (id, name, email, passwordHash) VALUES (?, ?, ?, ?)');
-  insertUser.run(user.id, user.name, user.email, user.passwordHash);
-
-  // Возвращаем email в качестве простого токена для демо-целей
-  return res.status(201).json({
-    success: true,
-    token: user.email,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-    },
-  });
 });
 
 app.post('/api/auth/login', async (req, res) => {

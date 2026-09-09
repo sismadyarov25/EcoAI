@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Banknote, CheckCircle2, Droplet, Lightbulb } from 'lucide-react';
 
-export default function WaterCalculator() {
+export default function WaterCalculator({ onApply }) {
   const [startReading, setStartReading] = useState(67.300);
   const [currentReading, setCurrentReading] = useState(221.207);
   const [tariff, setTariff] = useState(149.18);
@@ -147,13 +147,26 @@ export default function WaterCalculator() {
           </div>
 
           {/* Кнопка */}
-          <button
-            type="button"
-            onClick={handleCalculate}
-            className="w-full bg-[#1877F2] hover:bg-blue-600 active:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md"
-          >
-            Рассчитать
-          </button>
+          <div className="flex gap-3 mt-2">
+            <button
+              type="button"
+              onClick={handleCalculate}
+              className="flex-1 bg-[#1877F2] hover:bg-blue-600 active:bg-blue-700 text-white font-semibold py-4 rounded-2xl transition-colors shadow-md"
+            >
+              Рассчитать
+            </button>
+            
+            {onApply && !hasReadingError && difference > 0 && (
+              <button
+                type="button"
+                onClick={() => onApply(difference)}
+                className="flex-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold py-4 rounded-2xl transition-colors shadow-sm"
+                title="Использовать этот объем в главном AI-анализе"
+              >
+                В общий анализ
+              </button>
+            )}
+          </div>
 
           {calculatedAt && (
             <div className="text-center text-[12px] font-semibold text-emerald-600">

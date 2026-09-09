@@ -1,6 +1,4 @@
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:5002' : '')
-).replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 async function safeJsonParse(response) {
   const text = await response.text();
@@ -19,11 +17,16 @@ async function safeJsonParse(response) {
 export const calculateEcoData = async (data) => {
   try {
     const url = `${API_BASE_URL}/api/calculate`;
+    const token = localStorage.getItem('ecoaiUser') ? JSON.parse(localStorage.getItem('ecoaiUser')).email : localStorage.getItem('ecoaiToken');
+    
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(data),
     });
 
@@ -38,4 +41,28 @@ export const calculateEcoData = async (data) => {
     console.error('API Error:', error);
     throw error;
   }
+};
+
+export const getUserHistory = async () => {
+  const url = `${API_BASE_URL}/api/user/history`;
+  const token = localStorage.getItem('ecoaiUser') ? JSON.parse(localStorage.getItem('ecoaiUser')).email : localStorage.getItem('ecoaiToken');
+  
+  if (!token) throw new Error('Not authenticated');
+
+  const response = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return await safeJsonParse(response);
+};
+
+export const getUserDynamics = async () => {
+  const url = `${API_BASE_URL}/api/user/dynamics`;
+  const token = localStorage.getItem('ecoaiUser') ? JSON.parse(localStorage.getItem('ecoaiUser')).email : localStorage.getItem('ecoaiToken');
+  
+  if (!token) throw new Error('Not authenticated');
+
+  const response = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  return await safeJsonParse(response);
 };

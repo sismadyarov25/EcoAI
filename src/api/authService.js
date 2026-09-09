@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5002').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 async function safeJsonParse(response) {
   const text = await response.text();
@@ -34,5 +34,5 @@ async function requestAuth(path, payload) {
   return result;
 }
 
-export const registerUser = (data) => requestAuth('/auth/register', data);
-export const loginUser = (data) => requestAuth('/auth/login', data);
+export const registerUser = (data) => requestAuth('/api/auth/register', data);
+export const loginUser = (data) => requestAuth('/api/auth/login', data);

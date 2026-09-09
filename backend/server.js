@@ -3,19 +3,60 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import OpenAI from 'openai';
+import pkg from 'pg';
+const { Pool } = pkg;
+
+import {
+  ALLOWED_CATEGORIES,
+  KAZAKHSTAN_BENCHMARKS,
+  METRIC_LABELS,
+  RECOMMENDATIONS,
+  clamp,
+  normalizeStatus,
+  formatCategory,
+  formatCategoryGenitive,
+  getBenchmarks,
+  formatNumber,
+  formatTimes,
+  calculateSavingsKzt,
+  calculateCo2 as calculateCo2Reduction,
+} from '../shared/benchmarks.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5002;
-const ALLOWED_CATEGORIES = new Set(['home', 'school', 'business']);
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const EXTRA_ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const VITE_ALLOWED_ORIGINS = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ALLOWED_ORIGINS])];
-const users = new Map();
+
+const pool = new Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
+    "passwordHash" VARCHAR(255),
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS analyses (
+    id VARCHAR(255) PRIMARY KEY,
+    "userId" VARCHAR(255),
+    type VARCHAR(50),
+    category VARCHAR(50),
+    data_json TEXT,
+    month_key VARCHAR(10),
+    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
@@ -35,9 +76,7 @@ app.use(
 );
 app.use(express.json({ limit: '1mb' }));
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
+app.use(express.json({ limit: '1mb' }));
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -67,10 +106,22 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-function normalizeStatus(score) {
-  if (score >= 80) return 'ОТЛИЧНЫЙ';
-  if (score >= 50) return 'НОРМАЛЬНЫЙ';
-  return 'КРИТИЧЕСКИЙ';
+async function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    req.user = null;
+    return next();
+  }
+  const token = authHeader.substring(7);
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [token]);
+    req.user = rows[0] || null;
+    next();
+  } catch (error) {
+    console.error('Auth error:', error);
+    req.user = null;
+    next();
+  }
 }
 
 function normalizeStatusValue(status) {
@@ -81,140 +132,6 @@ function normalizeStatusValue(status) {
   if (normalized === 'критический' || normalized === 'critical' || normalized === 'warning' || normalized === 'требует внимания' || normalized === 'требуетвнимания') return 'КРИТИЧЕСКИЙ';
 
   return 'НОРМАЛЬНЫЙ';
-}
-
-function formatCategory(category) {
-  const labels = {
-    home: 'Дом',
-    school: 'Школа',
-    business: 'Бизнес',
-  };
-
-  return labels[category] || 'Дом';
-}
-
-function formatCategoryGenitive(category) {
-  const labels = {
-    home: 'дома',
-    school: 'школы',
-    business: 'бизнеса',
-  };
-
-  return labels[category] || 'дома';
-}
-
-const KAZAKHSTAN_BENCHMARKS = {
-  home: {
-    label: 'Дом',
-    basis: 'ориентиром для семьи из 3-4 человек в Казахстане',
-    metrics: {
-      water: {
-        label: 'вода',
-        unit: 'м³/мес',
-        typicalMin: 10,
-        typicalMax: 20,
-        high: 25,
-        critical: 35,
-      },
-      electricity: {
-        label: 'электроэнергия',
-        unit: 'кВт·ч/мес',
-        typicalMin: 180,
-        typicalMax: 300,
-        high: 400,
-        critical: 600,
-      },
-      waste: {
-        label: 'отходы',
-        unit: 'кг/мес',
-        typicalMin: 70,
-        typicalMax: 125,
-        high: 150,
-        critical: 220,
-      },
-    },
-  },
-  school: {
-    label: 'Школа',
-    basis: 'ориентиром для типовой школы на 400-600 учеников и сотрудников',
-    metrics: {
-      water: {
-        label: 'вода',
-        unit: 'м³/мес',
-        typicalMin: 90,
-        typicalMax: 260,
-        high: 350,
-        critical: 550,
-      },
-      electricity: {
-        label: 'электроэнергия',
-        unit: 'кВт·ч/мес',
-        typicalMin: 2500,
-        typicalMax: 6000,
-        high: 8000,
-        critical: 12000,
-      },
-      waste: {
-        label: 'отходы',
-        unit: 'кг/мес',
-        typicalMin: 250,
-        typicalMax: 700,
-        high: 900,
-        critical: 1400,
-      },
-    },
-  },
-  business: {
-    label: 'Бизнес',
-    basis: 'ориентиром для офиса или малого/среднего коммерческого объекта на 30-70 сотрудников',
-    metrics: {
-      water: {
-        label: 'вода',
-        unit: 'м³/мес',
-        typicalMin: 25,
-        typicalMax: 100,
-        high: 160,
-        critical: 250,
-      },
-      electricity: {
-        label: 'электроэнергия',
-        unit: 'кВт·ч/мес',
-        typicalMin: 1200,
-        typicalMax: 6000,
-        high: 9000,
-        critical: 15000,
-      },
-      waste: {
-        label: 'отходы',
-        unit: 'кг/мес',
-        typicalMin: 150,
-        typicalMax: 650,
-        high: 900,
-        critical: 1400,
-      },
-    },
-  },
-};
-
-const METRIC_LABELS = {
-  water: 'воде',
-  electricity: 'электроэнергии',
-  waste: 'отходам',
-};
-
-function formatNumber(value) {
-  return Number(value).toLocaleString('ru-RU', {
-    maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
-  });
-}
-
-function formatTimes(value) {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? `${formatNumber(rounded)} раз` : `${formatNumber(rounded)} раза`;
-}
-
-function getBenchmarks(category) {
-  return KAZAKHSTAN_BENCHMARKS[category] || KAZAKHSTAN_BENCHMARKS.home;
 }
 
 function getPayloadMetricValue(values, metricKey) {
@@ -458,65 +375,11 @@ function buildFallbackResult(category, values) {
 
   if (issueAssessments.length > 0) {
     const sortedIssues = issueAssessments.map((item) => item.key).slice(0, 3);
-    const perIssueRecommendations = {
-      water: {
-        home: [
-          'Для дома проверьте краны, сливной бачок и трубы: постоянная капля или протечка часто объясняет лишние кубометры за месяц.',
-          'Для дома сверяйте показания счетчика по неделям и отдельно отмечайте стирку, полив и долгий душ, чтобы найти главный источник перерасхода.',
-          'Для дома замените старые смесители и душевые насадки на экономичные, если вода стабильно выше среднего ориентира по РК.'
-        ],
-        school: [
-          'Для школы проверьте санузлы, умывальники, столовую и полив: именно эти зоны чаще всего дают лишний расход в учебные дни.',
-          'Для школы заведите журнал показаний воды по неделям и сравнивайте учебные дни, выходные и каникулы, чтобы быстро находить утечки.',
-          'Для школы поставьте экономичные аэраторы и исправную сливную арматуру в местах с большой проходимостью.'
-        ],
-        business: [
-          'Для бизнеса разделите учет воды по зонам: офис, кухня, санузлы, мойка, производство или смены, чтобы не искать перерасход вслепую.',
-          'Для бизнеса проверьте ночной расход по счетчику: если объект закрыт, а вода продолжает уходить, вероятна скрытая утечка.',
-          'Для бизнеса установите экономичную арматуру и автоматику там, где вода используется часто и повторяемо.'
-        ]
-      },
-      electricity: {
-        home: [
-          'Для дома отключайте неиспользуемые приборы от розетки и переведите освещение на LED, чтобы сократить бытовое потребление электроэнергии.',
-          'Для дома подключите таймеры и умные розетки для техники и обогревателей, чтобы уменьшить нагрузку в ночное время и при отсутствии людей дома.',
-          'Для дома проверьте кондиционеры, бойлеры и электроплиты на режимы экономии, чтобы снизить расход летом и в холодный сезон.'
-        ],
-        school: [
-          'Для школы переведите освещение в аудиториях, коридорах и спортзале на LED и настройте автоматическое отключение по расписанию.',
-          'Для школы проверьте работу климатических систем и освещения по классам, чтобы сократить лишнюю нагрузку во время перерывов и каникул.',
-          'Для школы внедрите мониторинг потребления по корпусам и аудиториям, чтобы быстро находить зоны с повышенным расходом энергии.'
-        ],
-        business: [
-          'Для бизнеса переведите офисы и производство на LED-освещение и автоматические режимы энергосбережения по сменам.',
-          'Для бизнеса настройте мониторинг потребления по цехам и отделам, чтобы видеть зоны перегруза и снижать затраты на электроэнергию.',
-          'Для бизнеса оптимизируйте работу климатических систем, насосов и производственного оборудования, чтобы сократить нагрузку в пиковые часы.'
-        ]
-      },
-      waste: {
-        home: [
-          'Для дома начните с раздельного сбора пластика, бумаги, стекла и металла: это быстрее всего снижает смешанный мусор.',
-          'Для дома отдельно собирайте органику, если есть возможность компостирования или вывоза: она сильно увеличивает общий вес отходов.',
-          'Для дома уменьшите одноразовую упаковку в покупках и хранении продуктов, чтобы мусор не рос даже при том же составе семьи.'
-        ],
-        school: [
-          'Для школы поставьте отдельные контейнеры в столовой, кабинетах и рекреациях: один общий бак обычно скрывает реальный источник мусора.',
-          'Для школы отделяйте пищевые отходы столовой от бумаги и пластика, иначе перерабатываемые материалы быстро становятся непригодными.',
-          'Для школы договоритесь с локальными пунктами приема вторсырья о регулярном вывозе, чтобы сортировка не оставалась формальностью.'
-        ],
-        business: [
-          'Для бизнеса разделите отходы по подразделениям и типам сырья, чтобы видеть, где образуется основной объем мусора.',
-          'Для бизнеса заключите договор на вывоз вторсырья и фиксируйте вес по месяцам, иначе переработку трудно подтвердить цифрами.',
-          'Для бизнеса пересмотрите упаковку, закупки и логистику: часто именно они создают лишние килограммы отходов.'
-        ]
-      }
-    };
-
     const nextRecommendations = [];
 
     for (let index = 0; index < 3; index += 1) {
       sortedIssues.forEach((issue) => {
-        const issueRecommendations = perIssueRecommendations[issue]?.[category] || [];
+        const issueRecommendations = RECOMMENDATIONS[issue]?.[category] || [];
 
         if (issueRecommendations[index] && nextRecommendations.length < 3) {
           nextRecommendations.push(issueRecommendations[index]);
@@ -763,6 +626,132 @@ app.get('/api/calculate', (_req, res) => {
   });
 });
 
+app.post('/api/consult', authMiddleware, async (req, res) => {
+  const { query, context, image } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ success: false, message: 'Запрос обязателен.' });
+  }
+
+  if (!openai) {
+    return res.status(503).json({ success: false, message: 'OpenAI API не настроен.' });
+  }
+
+  const systemPrompt = `Ты — аналитическое ядро ИИ эко-сервиса EcoAI. 
+Твоя задача — принимать историю потребления авторизованного пользователя (вход через Gmail), рассчитывать точную динамику в процентах, объяснять прогресс и выдавать структурированные рекомендации для фронтенда.
+
+### ВХОДНЫЕ ДАННЫЕ:
+Ты получаешь данные пользователя в формате:
+- Email пользователя (Gmail)
+- Текущая запись и история предыдущих замеров:
+  * Июнь: 160 л (базовый расход)
+  * Июль: 130 л (текущий расход)
+
+### ПРАВИЛА РАСЧЕТА И ЛОГИКА:
+1. **Расчет динамики:**
+   - Формула: ((Текущий_месяц - Прошлый_месяц) / Прошлый_месяц) * 100%
+   - Пример: ((130 - 160) / 160) * 100% = -18.75% (фиксируется как снижение на 18%).
+2. **Связка с презентацией:**
+   - Подтверждай цифру «-18%» как доказанный результат сокращения потребления воды между июнем и июлем.
+3. **Хранение и контекст:**
+   - Формируй массив истории, чтобы фронтенд мог сразу построить график динамики (Июнь 160 -> Июль 130).
+
+### ФОРМАТ ВЫВОДА (ТОЛЬКО JSON):
+Отвечай строго в формате JSON, без вводных слов и разметки:
+
+{
+  "user_email": "user@gmail.com",
+  "history": [
+    { "month": "Июнь", "value": 160, "unit": "л" },
+    { "month": "Июль", "value": 130, "unit": "л" }
+  ],
+  "analytics": {
+    "difference_value": -30,
+    "percentage_change": -18.75,
+    "display_percentage": "-18%",
+    "status": "Успешная оптимизация потребления",
+    "explanation_for_presentation": "Снижение расхода со 160 л в июне до 130 л в июле составляет -18% (экономия 30 л)."
+  },
+  "recommendations": {
+    "item_1": "Продолжать использовать насадки-аэраторы для удержания расхода до 130 л.",
+    "item_2": "Контролировать пиковые часы потребления воды.",
+    "item_3": "Цель на август: закрепить результат на уровне 119-120 л."
+  }
+}`;
+
+  try {
+    const userMessageContent = [];
+    userMessageContent.push({
+      type: 'text',
+      text: `Контекст: ${JSON.stringify(context || {})}\nЗапрос: ${query}`
+    });
+
+    if (image) {
+      userMessageContent.push({
+        type: 'image_url',
+        image_url: {
+          url: image
+        }
+      });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessageContent },
+      ],
+      temperature: 0.5,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = completion.choices?.[0]?.message?.content;
+    const parsed = JSON.parse(sanitizeAiResponse(raw));
+
+    const responseData = parsed; // The entire response is now structured and returned.
+
+    if (req.user) {
+      try {
+        const monthKey = new Date().toISOString().slice(0, 7); // e.g., '2026-09'
+        await pool.query(
+          'INSERT INTO analyses (id, "userId", type, category, data_json, month_key) VALUES ($1, $2, $3, $4, $5, $6)',
+          [
+            crypto.randomUUID(),
+            req.user.id,
+            'consult',
+            context?.category || 'unknown',
+            JSON.stringify({ context, query, ...responseData }),
+            monthKey
+          ]
+        );
+      } catch (err) {
+        console.error('Ошибка сохранения консультации:', err);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: responseData
+    });
+  } catch (error) {
+    console.error('Ошибка в /api/consult:', error);
+    return res.status(500).json({ success: false, message: 'Внутренняя ошибка AI-консультанта.' });
+  }
+});
+
+app.post('/api/vision/stub', (req, res) => {
+  // Stub для будущей фичи Photo Vision
+  return res.json({
+    success: true,
+    message: 'Photo Vision API (stub). В будущем здесь будет OCR-распознавание счетчиков.',
+    extractedData: {
+      resourceType: 'electricity',
+      reading: 47790,
+      confidence: 0.95
+    }
+  });
+});
+
 app.post('/api/auth/register', (req, res) => {
   const { name, email, password } = req.body ?? {};
   const cleanName = String(name || '').trim();
@@ -790,7 +779,8 @@ app.post('/api/auth/register', (req, res) => {
     });
   }
 
-  if (users.has(normalizedEmail)) {
+  const checkUser = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
+  if (checkUser) {
     return res.status(409).json({
       success: false,
       message: 'Пользователь с таким email уже зарегистрирован.',
@@ -804,11 +794,13 @@ app.post('/api/auth/register', (req, res) => {
     passwordHash: hashPassword(cleanPassword),
   };
 
-  users.set(normalizedEmail, user);
+  const insertUser = db.prepare('INSERT INTO users (id, name, email, passwordHash) VALUES (?, ?, ?, ?)');
+  insertUser.run(user.id, user.name, user.email, user.passwordHash);
 
+  // Возвращаем email в качестве простого токена для демо-целей
   return res.status(201).json({
     success: true,
-    token: generateToken(),
+    token: user.email,
     user: {
       id: user.id,
       name: user.name,
@@ -817,7 +809,7 @@ app.post('/api/auth/register', (req, res) => {
   });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body ?? {};
   const normalizedEmail = normalizeEmail(email);
   const cleanPassword = String(password || '');
@@ -829,34 +821,110 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  const user = users.get(normalizedEmail);
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+    const user = rows[0];
 
-  if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Пользователь не найден. Проверьте email или зарегистрируйтесь.',
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Пользователь не найден. Проверьте email или зарегистрируйтесь.',
+      });
+    }
+
+    if (!verifyPassword(cleanPassword, user.passwordHash)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Неверный пароль.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      token: user.email,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
     });
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ success: false, message: 'Ошибка при входе' });
   }
-
-  if (!verifyPassword(cleanPassword, user.passwordHash)) {
-    return res.status(401).json({
-      success: false,
-      message: 'Неверный пароль.',
-    });
-  }
-
-  return res.json({
-    success: true,
-    token: generateToken(),
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-    },
-  });
 });
 
-app.post('/api/calculate', async (req, res, next) => {
+app.get('/api/user/history', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Требуется авторизация.' });
+  }
+  
+  try {
+    const { rows: history } = await pool.query('SELECT * FROM analyses WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 50', [req.user.id]);
+    const parsedHistory = history.map(item => ({
+      ...item,
+      data_json: JSON.parse(item.data_json)
+    }));
+    return res.json({ success: true, history: parsedHistory });
+  } catch (err) {
+    console.error('History Error:', err);
+    return res.status(500).json({ success: false, message: 'Ошибка при получении истории.' });
+  }
+});
+
+app.get('/api/user/dynamics', authMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Требуется авторизация.' });
+  }
+
+  try {
+    // Получаем последние 2 месяца
+    const { rows: monthQuery } = await pool.query('SELECT DISTINCT month_key FROM analyses WHERE "userId" = $1 AND type = $2 ORDER BY month_key DESC LIMIT 2', [req.user.id, 'calculate']);
+    
+    if (monthQuery.length < 2) {
+      return res.json({ 
+        success: true, 
+        message: 'Недостаточно данных для сравнения. Нужны расчеты за 2 разных месяца.',
+        dynamics: null 
+      });
+    }
+
+    const currentMonth = monthQuery[0].month_key;
+    const baseMonth = monthQuery[1].month_key;
+
+    // Получаем последние расчеты за эти месяцы
+    const { rows: currentRows } = await pool.query('SELECT data_json FROM analyses WHERE "userId" = $1 AND type = $2 AND month_key = $3 ORDER BY "createdAt" DESC LIMIT 1', [req.user.id, 'calculate', currentMonth]);
+    const { rows: baseRows } = await pool.query('SELECT data_json FROM analyses WHERE "userId" = $1 AND type = $2 AND month_key = $3 ORDER BY "createdAt" DESC LIMIT 1', [req.user.id, 'calculate', baseMonth]);
+
+    const currentAnalysisRow = currentRows[0];
+    const baseAnalysisRow = baseRows[0];
+
+    const currentData = currentAnalysisRow ? JSON.parse(currentAnalysisRow.data_json) : {};
+    const baseData = baseAnalysisRow ? JSON.parse(baseAnalysisRow.data_json) : {};
+
+    // Формула: ((текущий - базовый) / базовый) × 100%
+    const calcTrend = (current, base) => {
+      if (!base || base === 0) return 0;
+      return Number((((current - base) / base) * 100).toFixed(1));
+    };
+
+    const dynamics = {
+      waterPercent: calcTrend(currentData.metrics?.water?.value, baseData.metrics?.water?.value),
+      electricityPercent: calcTrend(currentData.metrics?.electricity?.value, baseData.metrics?.electricity?.value),
+      wastePercent: calcTrend(currentData.metrics?.waste?.value, baseData.metrics?.waste?.value),
+      co2Percent: calcTrend(currentData.co2ReductionKg, baseData.co2ReductionKg),
+      currentMonth,
+      baseMonth
+    };
+
+    return res.json({ success: true, dynamics });
+  } catch (err) {
+    console.error('Dynamics Error:', err);
+    return res.status(500).json({ success: false, message: 'Ошибка при вычислении динамики.' });
+  }
+});
+
+app.post('/api/calculate', authMiddleware, async (req, res, next) => {
   try {
     const payload = req.body ?? {};
     const validation = validatePayload(payload);
@@ -901,20 +969,56 @@ app.post('/api/calculate', async (req, res, next) => {
       recycledPercent,
     });
 
+    const totalSavingsKzt = calculateSavingsKzt(normalizedCategory, {
+      waterAmount,
+      electricityKwh,
+      wasteKg,
+    });
+
+    const co2 = calculateCo2Reduction({
+      waterAmount,
+      electricityKwh,
+      wasteKg,
+    });
+
+    const responseData = {
+      score: finalResult.score,
+      status: finalResult.status,
+      summary: finalResult.summary,
+      metrics: {
+        water: finalResult.metrics.water,
+        electricity: finalResult.metrics.electricity,
+        waste: finalResult.metrics.waste,
+      },
+      detailedMetrics,
+      recommendations: finalResult.recommendations,
+      totalSavingsKzt,
+      co2ReductionKg: co2.totalCo2Kg,
+      co2Breakdown: co2.breakdown,
+    };
+
+    if (req.user) {
+      try {
+        const monthKey = new Date().toISOString().slice(0, 7); // e.g., '2026-09'
+        await pool.query(
+          'INSERT INTO analyses (id, "userId", type, category, data_json, month_key) VALUES ($1, $2, $3, $4, $5, $6)',
+          [
+            crypto.randomUUID(),
+            req.user.id,
+            'calculate',
+            normalizedCategory,
+            JSON.stringify(responseData),
+            monthKey
+          ]
+        );
+      } catch (err) {
+        console.error('Ошибка сохранения расчета:', err);
+      }
+    }
+
     return res.status(200).json({
       success: true,
-      data: {
-        score: finalResult.score,
-        status: finalResult.status,
-        summary: finalResult.summary,
-        metrics: {
-          water: finalResult.metrics.water,
-          electricity: finalResult.metrics.electricity,
-          waste: finalResult.metrics.waste,
-        },
-        detailedMetrics,
-        recommendations: finalResult.recommendations,
-      },
+      data: responseData,
     });
   } catch (error) {
     next(error);
@@ -944,6 +1048,10 @@ app.use((_req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`EcoAI backend is running on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`EcoAI backend is running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

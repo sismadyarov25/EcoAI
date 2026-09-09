@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Banknote, Calendar, CheckCircle2, Hash, Lightbulb, Users, Zap } from 'lucide-react';
 
-export default function ElectricityCalculator() {
+export default function ElectricityCalculator({ onApply }) {
   const [residents, setResidents] = useState(5);
   // Default to 3 days ago for demo purposes
   const getThreeDaysAgo = () => {
@@ -187,13 +187,26 @@ export default function ElectricityCalculator() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleUpdate}
-            className="w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-4 rounded-2xl transition-colors mt-2 shadow-md"
-          >
-            Обновить
-          </button>
+          <div className="flex gap-3 mt-2">
+            <button
+              type="button"
+              onClick={handleUpdate}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-4 rounded-2xl transition-colors shadow-md"
+            >
+              Обновить
+            </button>
+            
+            {onApply && currentReading >= startReading && used > 0 && (
+              <button
+                type="button"
+                onClick={() => onApply(used)}
+                className="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-semibold py-4 rounded-2xl transition-colors shadow-sm"
+                title="Использовать этот объем в главном AI-анализе"
+              >
+                В общий анализ
+              </button>
+            )}
+          </div>
 
           {updatedAt && (
             <div className="text-center text-[12px] font-semibold text-amber-600">
